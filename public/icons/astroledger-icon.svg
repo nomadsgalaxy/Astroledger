@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Astroledger app icon">
+  <!-- App icon variant: dark rounded square + orange mark. Used by the PWA
+       manifest, the favicon, and OS-level launchers where a self-contained
+       square asset is required. The mark itself lives in `astroledger.svg`. -->
+  <rect width="512" height="512" rx="72" fill="#0a0a0a"/>
+  <g transform="translate(36 36) scale(4.4)" style="color:#FD5000">
+    <path fill="currentColor" fill-rule="evenodd"
+          d="M50 2 L93.3 27 L93.3 73 L50 98 L6.7 73 L6.7 27 Z
+             M82 50 A32 32 0 1 0 18 50 A32 32 0 1 0 82 50 Z
+             M78 50 A28 28 0 1 0 22 50 A28 28 0 1 0 78 50 Z
+             M50 30 L46 46 L30 50 L46 54 L50 70 L54 54 L70 50 L54 46 Z" />
+  </g>
+</svg>

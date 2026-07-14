@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" role="img" aria-label="Astroledger">
+  <!-- Universal Astroledger mark. Pure SVG paths (no text/font dependency).
+       Single shape with even-odd fill: pointy-top hexagon outline with a
+       4-point sparkle knocked out. Fills with currentColor so the same file
+       drops onto any background — set `color: <accent>` on the parent. -->
+  <!-- Path subpaths (with even-odd fill):
+       1. Hexagonal frame.
+       2. Coin outer circle — stamped credit outline.
+       3. Coin inner circle — creates a 4-unit-wide ring that knocks out.
+       4. 4-point star engraved on the coin face.
+       Reads as a fictional "Astroledger Credit": currency disc + star. -->
+  <path fill="currentColor" fill-rule="evenodd"
+        d="M50 2 L93.3 27 L93.3 73 L50 98 L6.7 73 L6.7 27 Z
+           M82 50 A32 32 0 1 0 18 50 A32 32 0 1 0 82 50 Z
+           M78 50 A28 28 0 1 0 22 50 A28 28 0 1 0 78 50 Z
+           M50 30 L46 46 L30 50 L46 54 L50 70 L54 54 L70 50 L54 46 Z" />
+</svg>

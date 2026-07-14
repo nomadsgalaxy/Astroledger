@@ -1,0 +1,32 @@
+node_modules
+.next
+tsconfig.tsbuildinfo
+
+# Env and secrets — only .env.example is tracked
+.env
+.env.*
+!.env.example
+secrets/
+
+# Databases (all generated or environment-local; demo regenerates via seed:demo)
+prisma/dev.db*
+prisma/demo.db*
+prisma/.test-integration.db*
+prisma/.e2e-multiuser.db*
+prisma/sandboxes/
+
+# Real/local financial data — never commit
+data/
+uploads/
+
+# Logs and scratch
+*.log
+*.err
+
+# Release artifacts
+*.zip
+
+# Playwright e2e artifacts
+playwright-report/
+test-results/
+.playwright/

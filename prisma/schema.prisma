@@ -1,0 +1,1136 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Institution {
+  id             String        @id @default(cuid())
+  ownerSpaceId   String?
+  name           String
+  source         String // "plaid" | "csv" | "manual"
+  plaidItemId    String?       @unique
+  accessToken    String? // Plaid access token (encrypt in prod)
+  createdAt      DateTime      @default(now())
+  accounts       BankAccount[]
+  // Connection health (v0.4.0). Written on every sync (manual or scheduled).
+  // lastSyncStatus: ok | auth_error | network_error | error | never.
+  lastSyncedAt   DateTime?
+  lastSyncStatus String?       @default("never")
+  lastSyncError  String?
+}
+
+// Renamed from `Account` to avoid collision with Auth.js's PrismaAdapter which
+// hard-codes a model literally named `Account` for OAuth credentials.
+model BankAccount {
+  id             String              @id @default(cuid())
+  ownerSpaceId   String?
+  institutionId  String
+  institution    Institution         @relation(fields: [institutionId], references: [id], onDelete: Cascade)
+  plaidAccountId String?             @unique
+  name           String
+  officialName   String?
+  type           String // raw type from import source: depository|credit|loan|investment|wallet|ecommerce
+  subtype        String? // raw subtype (e.g. plaid: checking, savings, money market, 401k, cd)
+  kind           String? // user-assigned category — overrides inferred grouping in Accounts + Net Worth.
+  // values: checking | savings_short | savings_long | savings_retirement |
+  //         credit | loan | investment | wallet | ecommerce | other
+  mask           String?
+  currency       String              @default("USD")
+  balance        Float?
+  // Timestamp the balance was last known to be correct — last sync, last
+  // statement period end, or last manual edit. Lets us avoid overwriting a
+  // fresher live balance with an older statement ending balance.
+  balanceAsOf    DateTime?
+  // Last successful reconciliation lock (v0.4.0). Transactions dated on/before
+  // this are considered reconciled + locked from edits.
+  reconciledAsOf DateTime?
+  // Debt-payoff planner (v0.5.0). User-entered for credit/loan accounts so the
+  // avalanche/snowball optimizer can model interest + required payments.
+  apr            Float? // annual percentage rate, e.g. 19.99
+  minimumPayment Float? // required monthly minimum
+  createdAt      DateTime            @default(now())
+  transactions   Transaction[]
+  holdings       Holding[]
+  investmentTxns InvestmentTxn[]
+  grants         AccountGrant[]
+  documents      FinancialDocument[]
+
+  @@index([ownerSpaceId])
+}
+
+model Category {
+  id      String         @id @default(cuid())
+  spaceId String?
+  name    String
+  parent  String?
+  color   String?
+  txns    Transaction[]
+  subs    Subscription[]
+
+  @@unique([spaceId, name])
+  @@index([spaceId])
+}
+
+model Transaction {
+  id                    String           @id @default(cuid())
+  uuid                  String?          @unique @default(uuid()) // stable cross-machine identifier (UUIDv4) — auto-generated on insert; nullable only because of pre-existing rows (backfilled by settings page)
+  accountId             String
+  account               BankAccount      @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  plaidTxId             String?          @unique
+  hash                  String           @unique // dedup key for CSV imports
+  date                  DateTime
+  amount                Float // negative = outflow, positive = inflow
+  rawDescription        String
+  merchant              String? // normalized
+  categoryId            String?
+  category              Category?        @relation(fields: [categoryId], references: [id])
+  pending               Boolean          @default(false)
+  // Reconciliation lifecycle (v0.4.0): user marks a row `cleared` when it
+  // matches a line on their bank statement; when an account is reconciled
+  // (entered balance == sum of cleared) the rows are locked via the account's
+  // reconciledAsOf timestamp. Distinct from `pending` (bank-hold status) and
+  // from the anticipated-tx matcher (isAnticipated).
+  cleared               Boolean          @default(false)
+  reconciledAt          DateTime?
+  isTransfer            Boolean          @default(false)
+  notes                 String?
+  // Anticipated: user-entered placeholder for a real-world charge that hasn't
+  // synced from the bank yet. When a matching bank txn lands, the LLM matcher
+  // merges this row's notes/tags/receipts into the bank row and deletes this.
+  isAnticipated         Boolean          @default(false)
+  // When a bank tx absorbs an anticipated one, we keep a reference for audit.
+  mergedFromAnticipated String?
+  // User-marked: "this isn't part of a transfer, stop suggesting pairings".
+  // Honored by the pair-transfers matcher so the same row doesn't bubble up
+  // in /transfers/review every time the matcher runs.
+  pairingDismissed      Boolean          @default(false)
+  // Split transactions: one bank charge can be divided across multiple
+  // categories/tags via child transactions. When a tx has children:
+  //   - the parent stays as the audit record (real amount from the bank)
+  //   - children carry per-split amounts + their own categoryId + tags
+  //   - all rollups (spend by category, charts, totals) treat the PARENT as
+  //     excluded and use the children instead.
+  parentTransactionId   String?
+  parentTransaction     Transaction?     @relation("TransactionSplits", fields: [parentTransactionId], references: [id], onDelete: Cascade)
+  splits                Transaction[]    @relation("TransactionSplits")
+  isSplit               Boolean          @default(false) // true on the parent when it has been split
+  receipts              Receipt[]
+  subscriptionId        String?
+  subscription          Subscription?    @relation(fields: [subscriptionId], references: [id])
+  orders                Order[]
+  billOccurrences       BillOccurrence[] @relation("BillPaymentTransaction")
+  tags                  Tag[]            @relation("TransactionTags")
+  // Cross-account transfer pairing — both sides of a Spend→Reserve type move
+  // share the same UUID-style groupId so rollups can collapse them into one.
+  transferGroupId       String?
+  // Multi-currency. `currency` is the wire-currency of the charge as it
+  // landed on the bank (USD by default). `baseAmount` is `amount` converted
+  // to the user's base currency (USD) at charge date — null when same as
+  // amount, so the field is opt-in for foreign-currency transactions.
+  currency              String           @default("USD")
+  baseAmount            Float?
+  createdAt             DateTime         @default(now())
+
+  @@index([date])
+  @@index([merchant])
+  @@index([categoryId])
+  @@index([transferGroupId])
+  @@index([isAnticipated])
+}
+
+// Receipt file attached to a transaction (image, PDF, etc.). Stored on disk
+// under /uploads/receipts/YYYY-MM/. OCR fields are best-effort — populated by
+// a vision LLM if available, otherwise null and the user can fill them in.
+model Receipt {
+  id             String      @id @default(cuid())
+  transactionId  String
+  transaction    Transaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+  filePath       String // relative to ./uploads/
+  mimeType       String
+  byteSize       Int
+  originalName   String
+  parsedAmount   Float?
+  parsedMerchant String?
+  parsedDate     DateTime?
+  ocrText        String? // optional full-text OCR result
+  confidence     Float? // 0..1, from the OCR pass
+  createdAt      DateTime    @default(now())
+
+  @@index([transactionId])
+}
+
+model Subscription {
+  id           String        @id @default(cuid())
+  spaceId      String?
+  merchant     String
+  amount       Float // typical charge magnitude (positive)
+  cadence      String // weekly|monthly|quarterly|annual|irregular
+  cadenceDays  Int // approx days between charges
+  firstSeen    DateTime
+  lastSeen     DateTime
+  nextEstimate DateTime?
+  confidence   Float // 0..1
+  status       String        @default("active") // active|canceled|paused|review
+  amountMode   String        @default("fixed") // fixed | variable
+  autopay      Boolean       @default(false)
+  categoryId   String?
+  category     Category?     @relation(fields: [categoryId], references: [id])
+  notes        String?
+  transactions Transaction[]
+  tags         Tag[]         @relation("SubscriptionTags")
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  @@unique([spaceId, merchant, cadenceDays, amount])
+  @@index([spaceId])
+}
+
+model Budget {
+  id         String   @id @default(cuid())
+  spaceId    String?
+  categoryId String?
+  scope      String // "category" | "overall" | "merchant"
+  merchant   String?
+  monthly    Float
+  createdAt  DateTime @default(now())
+
+  @@index([spaceId])
+}
+
+model Order {
+  id            String       @id @default(cuid())
+  spaceId       String?
+  source        String // amazon_csv|gmail|outlook|extension|manual|playwright:<adapter>
+  externalId    String? // order number / message id
+  merchant      String // "Amazon", "DoorDash", "Etsy: Shop Name"
+  orderDate     DateTime
+  amount        Float // total charged
+  currency      String       @default("USD")
+  items         String? // JSON array of {name, qty, price}
+  url           String?
+  raw           String? // raw email/HTML for debugging
+  transactionId String?
+  transaction   Transaction? @relation(fields: [transactionId], references: [id])
+  createdAt     DateTime     @default(now())
+
+  @@unique([spaceId, source, externalId])
+  @@index([spaceId])
+  @@index([orderDate])
+  @@index([merchant])
+  @@index([amount])
+}
+
+model Goal {
+  id            String    @id @default(cuid())
+  spaceId       String?
+  name          String
+  kind          String // savings | debt_payoff | spend_under
+  targetAmount  Float
+  currentAmount Float     @default(0)
+  deadline      DateTime?
+  accountId     String? // optional account this goal tracks
+  categoryId    String? // for spend_under: cap this category at targetAmount/mo
+  notes         String?
+  status        String    @default("active") // active | achieved | paused | archived
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([spaceId])
+}
+
+model Recommendation {
+  id             String    @id @default(cuid())
+  spaceId        String?
+  kind           String // duplicate_sub|unused_sub|price_hike|over_avg|free_trial_flip|new_recurring
+  title          String
+  detail         String
+  monthlySavings Float?
+  refType        String? // subscription|merchant|transaction
+  refId          String?
+  status         String    @default("open") // open|dismissed|done
+  createdAt      DateTime  @default(now())
+  // Set when status flips to 'dismissed' (cleared if reopened). Drives the
+  // TTL cleanup: dismissed recs older than the dismiss_ttl_days AppSetting
+  // (default 12) get deleted on the next /alerts page load.
+  dismissedAt    DateTime?
+
+  @@index([status, dismissedAt])
+  @@index([spaceId])
+}
+
+model AppSetting {
+  key   String @id
+  value String
+}
+
+// ===== Tag system =====
+// Two-level hierarchy: parent tags own child tags. Either level can be applied
+// to Transactions or Subscriptions. Primary tags surface prominently in UI;
+// secondary tags act as muted descriptors.
+model Tag {
+  id        String   @id @default(cuid())
+  spaceId   String?
+  uuid      String?  @unique @default(uuid()) // stable cross-machine identifier — auto-generated on insert
+  name      String
+  color     String?
+  kind      String   @default("secondary") // "primary" | "secondary"
+  parentId  String?
+  parent    Tag?     @relation("TagParent", fields: [parentId], references: [id], onDelete: SetNull)
+  children  Tag[]    @relation("TagParent")
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  transactions  Transaction[]  @relation("TransactionTags")
+  subscriptions Subscription[] @relation("SubscriptionTags")
+
+  @@unique([spaceId, parentId, name])
+  @@index([spaceId])
+  @@index([parentId])
+  @@index([kind])
+}
+
+// ===== Planning suite: forecasts + versioned budgets =====
+
+model Forecast {
+  id            String          @id @default(cuid())
+  spaceId       String?
+  scope         String // overall | category | merchant
+  scopeKey      String?
+  flow          String // inflow | outflow | net
+  method        String // recurring | holt_winters | composite | manual
+  horizonMonths Int
+  generatedAt   DateTime        @default(now())
+  generatedFrom DateTime
+  meta          String? // JSON
+  points        ForecastPoint[]
+
+  @@index([scope, scopeKey, generatedAt])
+  @@index([spaceId])
+}
+
+model ForecastPoint {
+  id               String   @id @default(cuid())
+  forecastId       String
+  forecast         Forecast @relation(fields: [forecastId], references: [id], onDelete: Cascade)
+  month            DateTime
+  point            Float
+  low              Float
+  high             Float
+  contribRecurring Float?
+  contribVariable  Float?
+  contribManual    Float?
+
+  @@index([forecastId, month])
+}
+
+model Plan {
+  id           String     @id @default(cuid())
+  spaceId      String?
+  name         String
+  periodStart  DateTime
+  periodEnd    DateTime
+  status       String     @default("draft") // draft | active | superseded | archived
+  source       String // forecast | manual | import
+  supersededBy String?
+  supersededAt DateTime?
+  activatedAt  DateTime?
+  createdAt    DateTime   @default(now())
+  notes        String?
+  lines        PlanLine[]
+
+  @@index([status, periodStart])
+  @@index([spaceId])
+}
+
+model PlanLine {
+  id           String   @id @default(cuid())
+  planId       String
+  plan         Plan     @relation(fields: [planId], references: [id], onDelete: Cascade)
+  scope        String // category | overall | merchant
+  scopeKey     String?
+  month        DateTime
+  amount       Float
+  flow         String // inflow | outflow
+  sourceMethod String?
+  notes        String?
+
+  @@unique([planId, scope, scopeKey, month, flow])
+  @@index([planId, month])
+}
+
+// ===== Auth.js (NextAuth v5) models =====
+
+// Legacy household grouping. Since the financial-spaces migration
+// (2026-07-14), the durable ownership boundary is FinancialSpace: every
+// household is mirrored by a `space_hh_<id>` shared space and all financial
+// reads/writes are scoped through it. Household remains as the invitation/
+// membership source that ensureUserFinancialSpaces syncs from, and a user may
+// belong to multiple spaces across households.
+model Household {
+  id        String            @id @default(cuid())
+  name      String            @default("My Household")
+  createdAt DateTime          @default(now())
+  members   HouseholdMember[]
+  invites   HouseholdInvite[]
+}
+
+// A financial space is the durable ownership boundary for financial data.
+// Personal, shared-household, and stewarded/dependent ledgers all use the
+// same primitive so an account is never copied when it is shared or when a
+// dependent later receives autonomy.
+model FinancialSpace {
+  id                String                 @id @default(cuid())
+  name              String
+  kind              String                 @default("personal") // personal | household | stewarded
+  householdId       String?
+  beneficiaryUserId String?
+  createdById       String
+  status            String                 @default("active") // active | archived | succession_pending
+  createdAt         DateTime               @default(now())
+  updatedAt         DateTime               @updatedAt
+  members           FinancialSpaceMember[]
+  invites           FinancialSpaceInvite[]
+  documents         FinancialDocument[]
+  successionPlan    SpaceSuccessionPlan?
+
+  @@index([householdId])
+  @@index([beneficiaryUserId])
+  @@index([status])
+}
+
+model FinancialSpaceMember {
+  id                 String         @id @default(cuid())
+  spaceId            String
+  space              FinancialSpace @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+  userId             String
+  user               User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role               String         @default("viewer") // owner | manager | contributor | viewer | guardian | beneficiary | advisor | successor
+  canManageDocuments Boolean        @default(false)
+  canExport          Boolean        @default(false)
+  canInvite          Boolean        @default(false)
+  createdAt          DateTime       @default(now())
+  updatedAt          DateTime       @updatedAt
+
+  @@unique([spaceId, userId])
+  @@index([userId])
+}
+
+model FinancialSpaceInvite {
+  id                 String         @id @default(cuid())
+  spaceId            String
+  space              FinancialSpace @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+  email              String
+  role               String         @default("viewer")
+  canManageDocuments Boolean        @default(false)
+  canExport          Boolean        @default(false)
+  canInvite          Boolean        @default(false)
+  invitedById        String
+  expiresAt          DateTime
+  acceptedAt         DateTime?
+  revokedAt          DateTime?
+  createdAt          DateTime       @default(now())
+  updatedAt          DateTime       @updatedAt
+
+  @@unique([spaceId, email])
+  @@index([email, expiresAt])
+}
+
+// Account-level sharing supplements space membership. A grant can target a
+// person directly or an entire financial space. Exactly one grantee is set.
+model AccountGrant {
+  id             String      @id @default(cuid())
+  accountId      String
+  account        BankAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  granteeUserId  String?
+  granteeSpaceId String?
+  accessLevel    String      @default("view") // summary | view | manage | owner
+  documentAccess String      @default("none") // none | view | manage
+  canExport      Boolean     @default(false)
+  canShare       Boolean     @default(false)
+  expiresAt      DateTime?
+  grantedById    String
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+
+  @@unique([accountId, granteeUserId])
+  @@unique([accountId, granteeSpaceId])
+  @@index([granteeUserId])
+  @@index([granteeSpaceId])
+  @@index([expiresAt])
+}
+
+model FinancialDocument {
+  id           String         @id @default(cuid())
+  spaceId      String
+  space        FinancialSpace @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+  accountId    String?
+  account      BankAccount?   @relation(fields: [accountId], references: [id], onDelete: SetNull)
+  uploadedById String
+  name         String
+  kind         String         @default("other") // statement | tax | receipt | estate | insurance | other
+  filePath     String
+  mimeType     String
+  byteSize     Int
+  notes        String?
+  encrypted    Boolean        @default(true)
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+
+  @@index([spaceId, createdAt])
+  @@index([accountId])
+}
+
+model SpaceSuccessionPlan {
+  id                      String              @id @default(cuid())
+  spaceId                 String              @unique
+  space                   FinancialSpace      @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+  enabled                 Boolean             @default(false)
+  minimumApprovals        Int                 @default(1)
+  waitingPeriodDays       Int                 @default(30)
+  instructions            String?
+  infrastructureChecklist String? // JSON array; no secrets
+  createdAt               DateTime            @default(now())
+  updatedAt               DateTime            @updatedAt
+  successors              SpaceSuccessor[]
+  requests                SuccessionRequest[]
+}
+
+model SpaceSuccessor {
+  id         String              @id @default(cuid())
+  planId     String
+  plan       SpaceSuccessionPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+  userId     String?
+  email      String
+  priority   Int                 @default(0)
+  status     String              @default("nominated") // nominated | accepted | declined | revoked
+  acceptedAt DateTime?
+  createdAt  DateTime            @default(now())
+  updatedAt  DateTime            @updatedAt
+
+  @@unique([planId, email])
+  @@index([userId])
+}
+
+model SuccessionRequest {
+  id            String               @id @default(cuid())
+  planId        String
+  plan          SpaceSuccessionPlan  @relation(fields: [planId], references: [id], onDelete: Cascade)
+  requestedById String
+  status        String               @default("pending") // pending | approved | executed | canceled | rejected
+  executeAfter  DateTime
+  reason        String?
+  createdAt     DateTime             @default(now())
+  updatedAt     DateTime             @updatedAt
+  approvals     SuccessionApproval[]
+
+  @@index([planId, status])
+  @@index([executeAfter])
+}
+
+model SuccessionApproval {
+  id        String            @id @default(cuid())
+  requestId String
+  request   SuccessionRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  userId    String
+  decision  String            @default("approve") // approve | reject
+  decidedAt DateTime          @default(now())
+
+  @@unique([requestId, userId])
+}
+
+model HouseholdMember {
+  id          String    @id @default(cuid())
+  householdId String
+  household   Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role        String    @default("owner") // owner | member
+  createdAt   DateTime  @default(now())
+
+  @@unique([householdId, userId])
+  @@index([userId])
+}
+
+// An invitation is bound to an email address verified by the OAuth provider.
+// No bearer invite link is needed: the invited person signs in with the exact
+// address, then Auth.js atomically converts the pending invite to membership.
+model HouseholdInvite {
+  id          String    @id @default(cuid())
+  householdId String
+  household   Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
+  email       String
+  role        String    @default("member") // owner | member
+  invitedById String
+  expiresAt   DateTime
+  acceptedAt  DateTime?
+  revokedAt   DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@unique([householdId, email])
+  @@index([email, expiresAt])
+}
+
+model User {
+  id               String                 @id @default(cuid())
+  email            String                 @unique
+  name             String?
+  memberships      HouseholdMember[]
+  spaceMemberships FinancialSpaceMember[]
+  image            String?
+  emailVerified    DateTime?
+  isAdmin          Boolean                @default(false)
+  accounts         Account[]
+  sessions         Session[]
+  authenticators   Authenticator[]
+  createdAt        DateTime               @default(now())
+}
+
+// OAuth account credentials (Auth.js PrismaAdapter expects this exact name).
+// Bank accounts use the `BankAccount` model.
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+  user              User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+model Authenticator {
+  credentialID         String  @id
+  userId               String
+  providerAccountId    String
+  credentialPublicKey  String
+  counter              Int
+  credentialDeviceType String
+  credentialBackedUp   Boolean
+  transports           String?
+  user                 User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// Categorization rule. Applied on transaction insert via every import path.
+// Matches against rawDescription OR merchant; can also filter by account /
+// amount band. Applied side effects (tag IDs, category by name, isTransfer
+// override, merchant rename) are union-applied — multiple matching rules
+// each contribute their tags/etc. Highest sortOrder wins for the merchant
+// rename and category set.
+model Rule {
+  id              String   @id @default(cuid())
+  spaceId         String?
+  name            String // user-readable, e.g. "Coffee shops"
+  enabled         Boolean  @default(true)
+  matchType       String   @default("substring") // "substring" | "regex"
+  matchField      String   @default("rawDescription") // "rawDescription" | "merchant"
+  matchValue      String // the substring or regex
+  caseInsensitive Boolean  @default(true)
+  accountIds      String? // JSON array of bank account ids to restrict; null = any
+  minAmount       Float? // absolute, applied to abs(amount)
+  maxAmount       Float?
+  applyTagIds     String? // JSON array of tag ids to attach
+  applyCategory   String? // category name to set
+  applyIsTransfer Boolean?
+  applyMerchant   String? // override merchant name
+  sortOrder       Int      @default(0)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([enabled, sortOrder])
+  @@index([spaceId])
+}
+
+// Daily snapshot of total assets, liabilities, and net worth so /networth
+// can show a time-series. Written by /api/networth/snapshot (idempotent
+// per UTC day) and by SimpleFIN sync's post-step.
+model NetWorthSnapshot {
+  id          String   @id @default(cuid())
+  spaceId     String?
+  capturedAt  DateTime // UTC date the snapshot represents (00:00 of that day)
+  assets      Float
+  liabilities Float // positive magnitude
+  net         Float
+  createdAt   DateTime @default(now())
+
+  @@unique([spaceId, capturedAt])
+  @@index([spaceId])
+  @@index([capturedAt])
+}
+
+// ===== Medium-leverage feature schemas =====
+
+// Mileage log → creates an anticipated Transaction tagged Work Exp.
+// `ratePerMile` defaults to the IRS standard for the entry year; pinned per
+// log so historical entries stay accurate across rate changes.
+model MileageLog {
+  id            String   @id @default(cuid())
+  spaceId       String?
+  date          DateTime
+  miles         Float
+  purpose       String
+  ratePerMile   Float
+  tagId         String?
+  categoryId    String?
+  notes         String?
+  // Filled in once the user materializes this log as an anticipated tx;
+  // lets us avoid double-creating on the same log.
+  transactionId String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([date])
+  @@index([spaceId])
+}
+
+// IRS Schedule C bucket — used by /tax export to group transactions by
+// deductible category. `matchers` is a JSON array of {kind:"tag"|"category",
+// value:string} entries; any match wins.
+model TaxBucket {
+  id           String   @id @default(cuid())
+  spaceId      String?
+  scheduleLine String // "Line 8 — Advertising"
+  name         String
+  matchers     String   @default("[]") // JSON
+  notes        String?
+  sortOrder    Int      @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([spaceId])
+}
+
+// Per-tag (or per-category, or overall) monthly cap. Surfaces on /alerts
+// when the running total crosses `warnPct` of the cap.
+model SpendingAlert {
+  id         String   @id @default(cuid())
+  spaceId    String?
+  scope      String   @default("tag") // "tag" | "category" | "overall"
+  tagId      String?
+  categoryId String?
+  monthlyCap Float
+  warnPct    Float    @default(0.8)
+  enabled    Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([enabled])
+  @@index([spaceId])
+}
+
+// Envelope budgeting — allocations per month, derived spending tracked
+// against a tag or category. One row per (month, name).
+model Envelope {
+  id         String   @id @default(cuid())
+  spaceId    String?
+  monthYear  String // "2026-05"
+  name       String
+  allocated  Float
+  rollover   Boolean  @default(false)
+  scope      String   @default("tag") // "tag" | "category"
+  tagId      String?
+  categoryId String?
+  sortOrder  Int      @default(0)
+  notes      String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([spaceId, monthYear, name])
+  @@index([spaceId])
+  @@index([monthYear])
+}
+
+// Manual recurring money events (v0.5.0). Subscriptions are auto-detected
+// outflows and anticipated rows are one-offs; this is the first-class home for
+// recurring items the system can't infer — a paycheck, rent paid manually,
+// quarterly taxes, an allowance. Feeds the unified schedule view + the cashflow
+// projection so the runway reflects known future money movement.
+model Schedule {
+  id          String   @id @default(cuid())
+  spaceId     String?
+  name        String
+  amount      Float // signed: positive = income, negative = expense
+  cadenceDays Int // 7, 14, 30, 365, …
+  nextDate    DateTime // next occurrence
+  categoryId  String?
+  accountId   String?
+  active      Boolean  @default(true)
+  amountMode  String   @default("fixed") // fixed | variable
+  autopay     Boolean  @default(false)
+  notes       String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([active, nextDate])
+  @@index([spaceId])
+}
+
+// Materialized occurrence of an obligation from a detected subscription,
+// manual expense schedule, or anticipated transaction. Keeping occurrence
+// state separate from its recurring source lets one month be paid, skipped,
+// rescheduled, or amount-adjusted without changing every future month.
+model BillOccurrence {
+  id             String       @id @default(cuid())
+  spaceId        String?
+  sourceType     String // subscription | schedule | anticipated
+  sourceId       String
+  name           String
+  dueDate        DateTime
+  expectedAmount Float // positive magnitude
+  amountMode     String       @default("fixed") // fixed | variable
+  autopay        Boolean      @default(false)
+  status         String       @default("upcoming") // upcoming | paid | skipped
+  transactionId  String?
+  transaction    Transaction? @relation("BillPaymentTransaction", fields: [transactionId], references: [id], onDelete: SetNull)
+  paidAt         DateTime?
+  notes          String?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  @@unique([spaceId, sourceType, sourceId, dueDate])
+  @@index([spaceId])
+  @@index([status, dueDate])
+  @@index([transactionId])
+}
+
+// Persisted what-if scenarios (v0.5.0). A named, stackable set of monthly
+// cashflow adjustments the user can toggle on to see the effect on their
+// savings runway (how long liquid savings last, or how fast they grow).
+model Scenario {
+  id          String               @id @default(cuid())
+  spaceId     String?
+  name        String
+  active      Boolean              @default(false) // applied to the headline runway when true
+  notes       String?
+  createdAt   DateTime             @default(now())
+  updatedAt   DateTime             @updatedAt
+  adjustments ScenarioAdjustment[]
+
+  @@index([spaceId])
+}
+
+model ScenarioAdjustment {
+  id           String   @id @default(cuid())
+  scenarioId   String
+  scenario     Scenario @relation(fields: [scenarioId], references: [id], onDelete: Cascade)
+  label        String
+  // Signed monthly impact in base currency: positive = more money each month
+  // (raise, new income, cut a cost), negative = less (new expense).
+  monthlyDelta Float
+  createdAt    DateTime @default(now())
+
+  @@index([scenarioId])
+}
+
+// Audit trail (v0.5.x) for tool calls on the externally-reachable agent
+// surfaces (/api/mcp, /api/chat). Lets the user see what automated/agent
+// activity touched their data — especially writes via a leaked MCP_TOKEN.
+model AuditLog {
+  id      String   @id @default(cuid())
+  spaceId String?
+  at      DateTime @default(now())
+  surface String // "mcp" | "chat"
+  actor   String // token-hash prefix, session email, or "anon"
+  tool    String
+  isWrite Boolean  @default(false)
+  ok      Boolean  @default(true)
+  error   String?
+
+  @@index([at])
+  @@index([surface])
+  @@index([spaceId])
+}
+
+// ===== Household money workflows (v0.7.0) =====
+
+// An expense shared between people. References the real bank charge — the
+// transaction is never duplicated; shares record who owes what to the payer.
+model SharedExpense {
+  id            String         @id @default(cuid())
+  spaceId       String?
+  transactionId String         @unique
+  paidById      String // user who fronted the money
+  splitMode     String         @default("equal") // equal | percentage | fixed | custom
+  status        String         @default("open") // open | settled
+  notes         String?
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  shares        ExpenseShare[]
+
+  @@index([spaceId, status])
+}
+
+// One participant's slice of a shared expense. The payer's own share is
+// settled at creation; a share may belong to a member (userId) or to an
+// external person tracked by name only (label).
+model ExpenseShare {
+  id                      String        @id @default(cuid())
+  expenseId               String
+  expense                 SharedExpense @relation(fields: [expenseId], references: [id], onDelete: Cascade)
+  userId                  String?
+  label                   String? // external participant ("Roommate Sam")
+  amount                  Float // positive share of the charge
+  percentage              Float? // set when splitMode = percentage
+  settledAt               DateTime?
+  settledById             String?
+  settlementTransactionId String? // reimbursement transaction, marked isTransfer
+
+  @@unique([expenseId, userId])
+  @@index([userId])
+}
+
+// Recurring allowance funding for a stewarded space. Payouts create real
+// Transaction rows in the target account; nothing is double-counted.
+model AllowanceRule {
+  id          String            @id @default(cuid())
+  spaceId     String?
+  name        String
+  amount      Float // positive; paid into the dependent's account
+  cadenceDays Int
+  nextDate    DateTime
+  accountId   String // target account owned by the stewarded space
+  autoApprove Boolean           @default(false) // false → each payout awaits guardian approval
+  active      Boolean           @default(true)
+  notes       String?
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+  payouts     AllowancePayout[]
+
+  @@index([spaceId, active])
+}
+
+// A materialized allowance occurrence. Guardian approval (or autoApprove)
+// turns it into a Transaction; rejection leaves history without money.
+model AllowancePayout {
+  id            String        @id @default(cuid())
+  spaceId       String?
+  ruleId        String
+  rule          AllowanceRule @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+  dueDate       DateTime
+  amount        Float
+  status        String        @default("pending") // pending | paid | rejected
+  approvedById  String?
+  transactionId String?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  @@unique([ruleId, dueDate])
+  @@index([spaceId, status])
+}
+
+// A chore or goal the dependent can complete for a reward. The assignee may
+// only flip it to done_pending; a guardian approval pays the reward into the
+// chosen account.
+model ChoreTask {
+  id             String    @id @default(cuid())
+  spaceId        String?
+  name           String
+  reward         Float // positive
+  assigneeUserId String?
+  status         String    @default("open") // open | done_pending | paid | rejected
+  completedAt    DateTime?
+  approvedById   String?
+  transactionId  String?
+  accountId      String? // payout account, chosen at approval when unset
+  notes          String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@index([spaceId, status])
+  @@index([assigneeUserId])
+}
+
+// Space-scoped audit trail (v0.7.0) for permission, grant, document, export,
+// ownership, autonomy, and succession events. Append-only: the request-scoped
+// Prisma guard blocks every model-API write; rows are inserted only through
+// recordSpaceEvent() in src/lib/spaceEvents.ts after the surrounding service
+// has authorized the action. Reads are limited to the active space's admins.
+model SpaceAuditEvent {
+  id         String   @id @default(cuid())
+  spaceId    String
+  at         DateTime @default(now())
+  actorId    String // user id, or "system" for cron/bearer surfaces
+  action     String // e.g. member.invite | member.update | grant.set | account.move | succession.execute
+  targetType String? // member | invite | grant | account | space | plan | request | document | export
+  targetId   String?
+  summary    String // human-readable one-liner, no secrets
+  before     String? // JSON snapshot of the changed fields, no secrets
+  after      String? // JSON snapshot
+  reason     String?
+
+  @@index([spaceId, at])
+}
+
+// In-app notification (v0.7.0). Delivered to one user; readable only by that
+// user regardless of their active space (invites/succession events concern
+// spaces the recipient may not have selected). Created only through
+// notifyUser() in src/lib/spaceEvents.ts; the request path may only set
+// readAt on (or delete) the recipient's own rows.
+model SpaceNotification {
+  id       String    @id @default(cuid())
+  spaceId  String
+  userId   String
+  at       DateTime  @default(now())
+  kind     String // invite | permission | grant | export | succession | autonomy | ownership | document
+  title    String
+  body     String?
+  linkPath String? // in-app destination, e.g. /spaces
+  readAt   DateTime?
+
+  @@index([userId, readAt])
+  @@index([spaceId, at])
+}
+
+// FX reference rate for multi-currency conversions. `rate` is units of
+// `quote` per 1 unit of base currency (USD). Looked up at charge-date so
+// historical foreign-currency transactions convert to the rate-of-the-day.
+model FxRate {
+  id        String   @id @default(cuid())
+  date      DateTime // UTC midnight of the day
+  quote     String // ISO 4217 code, e.g. "EUR"
+  rate      Float // 1 USD = rate * quote
+  source    String   @default("manual")
+  createdAt DateTime @default(now())
+
+  @@unique([date, quote])
+  @@index([quote, date])
+}
+
+// Investment account holding (share-level position). Synced from SimpleFIN's
+// holdings response for investment accounts, OR reconstructed from QIF
+// investment transactions (lot-based cost basis). Updated in place per
+// (accountId, symbol) so the row count stays bounded.
+model Holding {
+  id            String      @id @default(cuid())
+  accountId     String
+  account       BankAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  symbol        String // ticker / CUSIP / custom id
+  description   String? // "Vanguard Total Stock Market ETF"
+  units         Float
+  costBasis     Float?
+  marketValue   Float?
+  currency      String      @default("USD")
+  lastPriceAsOf DateTime?
+  source        String      @default("simplefin") // simplefin | manual | qif
+  // Link to the canonical Security row (when one exists). Holdings sourced
+  // from QIF carry this; SimpleFIN holdings may not until matched by symbol.
+  securityId    String?
+  security      Security?   @relation(fields: [securityId], references: [id], onDelete: SetNull)
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  @@unique([accountId, symbol])
+  @@index([accountId])
+  @@index([securityId])
+}
+
+// A tradable security (stock, mutual fund, ETF, bond, money-market). Created
+// from QIF !Type:Security blocks or on-demand when an investment transaction
+// references an unknown security. `symbol` is the ticker when known, else a
+// CUSIP or a slugified name (QIF often ships fund names without a ticker —
+// e.g. "American Funds 2065 TD" has no S-line). Name is the human label.
+model Security {
+  id             String          @id @default(cuid())
+  symbol         String? // ticker / CUSIP — nullable (QIF funds often lack one)
+  name           String // "American Funds 2065 Target Date Retirement Fd"
+  kind           String? // stock | mutual_fund | etf | bond | money_market | other
+  currency       String          @default("USD")
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  prices         SecurityPrice[]
+  investmentTxns InvestmentTxn[]
+  holdings       Holding[]
+
+  // A security is keyed by symbol when present, else by name. Both are unique
+  // so re-import is idempotent and the lookup never creates duplicates.
+  @@unique([symbol])
+  @@unique([name])
+  @@index([symbol])
+}
+
+// Historical price point for a security. QIF !Type:Prices ships thousands of
+// these ("46593LR84",99.982," 2/ 6'24"). Used to value holdings at any date +
+// drive performance / net-worth reconstruction for investment accounts.
+model SecurityPrice {
+  id         String   @id @default(cuid())
+  securityId String
+  security   Security @relation(fields: [securityId], references: [id], onDelete: Cascade)
+  date       DateTime // UTC midnight
+  price      Float
+  source     String   @default("qif") // qif | simplefin | manual
+  createdAt  DateTime @default(now())
+
+  @@unique([securityId, date])
+  @@index([securityId, date])
+}
+
+// One investment-account action (Buy/Sell/Div/ReinvDiv/Split/ShrsIn/ShrsOut/
+// transfer). Modeled separately from Transaction because investment actions
+// carry shares + price + commission semantics that cash transactions don't,
+// and a single action can produce both a share movement AND a cash movement
+// (e.g. Div pays cash; ReinvDiv buys shares with it). Lot-based cost basis +
+// realized gains are computed from the ordered stream of these rows.
+model InvestmentTxn {
+  id                 String      @id @default(cuid())
+  uuid               String?     @unique @default(uuid())
+  accountId          String
+  account            BankAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  securityId         String? // null for pure-cash actions (Cash/IntInc with no security)
+  security           Security?   @relation(fields: [securityId], references: [id], onDelete: SetNull)
+  date               DateTime
+  // Normalized action. Maps QIF N-codes:
+  //   buy (Buy/BuyX/CvrShrt), sell (Sell/SellX/ShtSell), div (Div/DivX),
+  //   reinvest (ReinvDiv/ReinvInt/ReinvLg/ReinvSh), interest (IntInc/MiscInc),
+  //   capgain (CGShort/CGLong/CGMid), split (StkSplit), shares_in (ShrsIn/ContribX),
+  //   shares_out (ShrsOut), transfer_in (XIn), transfer_out (XOut), cash (Cash).
+  action             String
+  rawAction          String // original QIF N-code for audit
+  units              Float? // Q — shares (signed by action semantics; null for cash)
+  price              Float? // I — per-share price
+  amount             Float? // T/U — total cash amount of the action
+  commission         Float? // O — commission/fee
+  // For StkSplit, units carries the split ratio numerator (QIF stores e.g. 20
+  // meaning 2:1 expressed as new=old*ratio/10). splitRatio holds the parsed
+  // multiplier (2.0 for a 2:1).
+  splitRatio         Float?
+  memo               String?
+  // Transfer linkage: XIn/XOut + the L[account] / $amount cash leg. transferGroupId
+  // pairs the investment leg with the matching cash Transaction when we can find it.
+  transferAccountRef String? // L[...] raw account name
+  transferGroupId    String?
+  source             String      @default("qif") // qif | simplefin | manual
+  hash               String      @unique // dedup key for re-import idempotency
+  createdAt          DateTime    @default(now())
+
+  @@index([accountId, date])
+  @@index([securityId, date])
+  @@index([transferGroupId])
+}

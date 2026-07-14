@@ -1,0 +1,36 @@
+{
+  "manifest_version": 3,
+  "name": "Astroledger Order Capture",
+  "version": "0.1.0",
+  "description": "Captures order details from ecommerce sites you're already signed into and sends them to your local Astroledger instance.",
+  "permissions": ["activeTab", "storage", "scripting"],
+  "host_permissions": [
+    "*://*.amazon.com/*",
+    "*://*.doordash.com/*",
+    "*://*.ubereats.com/*",
+    "*://*.instacart.com/*",
+    "*://*.etsy.com/*",
+    "http://localhost/*"
+  ],
+  "background": { "service_worker": "background.js" },
+  "action": {
+    "default_title": "Astroledger Order Capture",
+    "default_popup": "popup.html",
+    "default_icon": { "16": "icon.svg", "48": "icon.svg", "128": "icon.svg" }
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "*://*.amazon.com/gp/your-account/order-details*",
+        "*://*.amazon.com/gp/css/order-history*",
+        "*://*.doordash.com/orders/*",
+        "*://*.ubereats.com/orders/*",
+        "*://*.instacart.com/store/orders/*",
+        "*://*.etsy.com/your/purchases/*"
+      ],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "icons": { "16": "icon.svg", "48": "icon.svg", "128": "icon.svg" }
+}

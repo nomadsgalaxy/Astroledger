@@ -1,0 +1,329 @@
+/* ==========================================================================
+   PRUSA RESEARCH - COLORS & TYPE TOKENS
+   Single source of truth for the design system.
+   Authority: Prusa Research Brand Manual v1.0 (mandatory).
+   ========================================================================== */
+
+/* ---------- 1. FONTS ----------------------------------------------------- */
+/* Brand-approved fallbacks used here:
+     Atlas Grotesk → Inter (Google Fonts)
+     Cocogoose Compressed → Barlow Condensed (Google Fonts)
+     Helvetica Neue LT Com → Helvetica Neue / Helvetica / Arial (system stack)
+     PP Supply Sans (CORE One) → ⚠ NO direct fallback; using Inter Tight as
+       closest free substitute. Flag to user - request original PP Supply Sans
+       files for CORE One product surfaces.
+*/
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@100;200;300;400;500;600;700;800;900&family=Inter+Tight:wght@200;300;400;500;600;700&family=Barlow+Condensed:wght@200;300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;700&display=swap');
+
+:root {
+
+  /* ---------- 2. BRAND COLOR PALETTE (mandatory, from Brand Manual) ----- */
+  --prusa-orange:        #FD5000;  /* NEW - primary accent for new materials */
+  --prusa-orange-old:    #ED6B21;  /* OLD - preserved on MK4S/XL/MINI/SL1S/PrusaSlicer */
+  --prusa-pro-green:     #00C48D;  /* Reserved for Prusa Pro (HT90) line */
+  --prusa-gray:          #808285;  /* Brand neutral (60% black) */
+  --prusa-black:         #000000;
+  --prusa-white:         #FFFFFF;
+
+  /* ---------- 3. EXTENDED ORANGE FAMILY (PrusaSlicer derived) ----------- */
+  --orange-bright:       #FA6831;  /* Filament indicator, animations */
+  --orange-light:        #ED8D21;  /* Hover */
+  --orange-warm:         #F67647;
+  --orange-dark:         #E05D2D;  /* Pressed */
+  --orange-copper:       #BF6637;
+  --orange-peach:        #F7C0A1;  /* Light tint backgrounds */
+
+  /* ---------- 4. NEUTRAL SCALE ----------------------------------------- */
+  --gray-50:   #F7F7F7;   /* near white */
+  --gray-100:  #F5F6F7;   /* panel BG */
+  --gray-200:  #EEEEEE;   /* dividers */
+  --gray-300:  #D3D3D3;   /* disabled */
+  --gray-400:  #C8C8C8;   /* inactive controls */
+  --gray-500:  #808285;   /* brand gray */
+  --gray-600:  #666666;   /* secondary text */
+  --gray-700:  #505050;
+  --gray-800:  #333333;   /* primary text light mode */
+  --gray-900:  #2A2A2A;
+  --gray-950:  #121212;   /* dark mode background */
+
+  /* ---------- 5. SEMANTIC / STATUS COLORS ------------------------------- */
+  --success:        #65C900;
+  --success-alt:    #8CC63F;
+  --error:          #ED0000;
+  --error-critical: #FF0000;
+  --warning:        #FFDC00;
+  --link:           #346EF4;
+  --link-hover:     #4E81F8;
+  --link-tint:      #B6D2FB;
+
+  /* Mode hexagon traffic-light - PrusaSlicer signature */
+  --mode-simple:        #7DF028;
+  --mode-simple-shade:  #7DDC28;
+  --mode-advanced:      #FFDC00;
+  --mode-advanced-shade:#FFD200;
+  --mode-expert:        #E70000;
+  --mode-expert-shade:  #D30000;
+
+  /* ---------- 6. SEMANTIC SURFACE TOKENS (light mode) ------------------- */
+  --bg:           var(--prusa-white);
+  --bg-subtle:    var(--gray-50);
+  --bg-panel:     var(--gray-100);
+  --bg-elevated:  var(--prusa-white);
+  --bg-inverse:   var(--prusa-black);
+
+  --fg:           var(--gray-800);   /* primary body text */
+  --fg-strong:    var(--prusa-black);/* headings */
+  --fg-muted:     var(--gray-600);   /* secondary */
+  --fg-subtle:    var(--gray-500);   /* tertiary */
+  --fg-disabled:  var(--gray-400);
+  --fg-on-orange: var(--prusa-white);
+  --fg-on-dark:   var(--prusa-white);
+  --fg-inverse:   var(--prusa-white);
+
+  --border:        var(--gray-200);
+  --border-strong: var(--prusa-black);
+  --border-focus:  var(--prusa-orange);
+
+  --accent:        var(--prusa-orange);     /* PRIMARY ACCENT - orange */
+  --accent-hover:  var(--orange-light);
+  --accent-press:  var(--orange-dark);
+  --accent-fg:     var(--prusa-white);
+
+  /* ---------- 7. RADII --------------------------------------------------- */
+  /* Prusa is engineering-precise: small radii dominate; full pill rare */
+  --r-none:  0;
+  --r-xs:    2px;
+  --r-sm:    4px;     /* default UI radius (web view buttons, notifications) */
+  --r-md:    6px;
+  --r-lg:    8px;
+  --r-xl:    12px;
+  --r-pill:  999px;
+
+  /* ---------- 8. SPACING (4px base) ------------------------------------- */
+  --s-0:   0;
+  --s-1:   4px;
+  --s-2:   8px;
+  --s-3:   12px;
+  --s-4:   16px;
+  --s-5:   20px;
+  --s-6:   24px;
+  --s-8:   32px;
+  --s-10:  40px;
+  --s-12:  48px;
+  --s-16:  64px;
+  --s-20:  80px;
+  --s-24:  96px;
+
+  /* ---------- 9. SHADOWS ------------------------------------------------- */
+  --shadow-focus:  0 0 5px rgba(0, 0, 0, 0.30);
+  --shadow-focus-dark: 0 0 5px rgba(100, 100, 100, 0.50);
+  --shadow-sm:     0 1px 2px rgba(0, 0, 0, 0.08);
+  --shadow-md:     0 4px 12px rgba(0, 0, 0, 0.10);
+  --shadow-lg:     0 12px 32px rgba(0, 0, 0, 0.18);
+  --shadow-product:0 30px 60px -20px rgba(0, 0, 0, 0.55); /* hero shots */
+
+  /* ---------- 10. MOTION ------------------------------------------------- */
+  /* Prusa motion is purposeful, mechanical, never bouncy */
+  --ease-out:   cubic-bezier(.2, .7, .2, 1);
+  --ease-in:    cubic-bezier(.6, 0, 1, .4);
+  --ease-inout: cubic-bezier(.4, 0, .2, 1);
+  --dur-fast:   120ms;
+  --dur-base:   180ms;
+  --dur-slow:   320ms;
+
+  /* ---------- 11. TYPOGRAPHY: FAMILIES ---------------------------------- */
+  --font-body:    'Inter', 'Atlas Grotesk', -apple-system, system-ui, sans-serif;
+  --font-display: 'Barlow Condensed', 'Cocogoose Compressed', 'Inter', sans-serif;
+  --font-product: 'Helvetica Neue', 'Helvetica', 'Arial', sans-serif;
+  --font-core-one:'Inter Tight', 'PP Supply Sans', 'Inter', sans-serif;
+  --font-mono:    'JetBrains Mono', 'Noto Mono', 'Menlo', monospace;
+
+  /* ---------- 12. TYPE SCALE -------------------------------------------- */
+  /* Designed for an eng-precise, dense product UI + bold marketing pages. */
+  --fs-12:  12px;
+  --fs-13:  13px;
+  --fs-14:  14px;
+  --fs-16:  16px;   /* base body */
+  --fs-18:  18px;
+  --fs-20:  20px;
+  --fs-24:  24px;
+  --fs-32:  32px;
+  --fs-40:  40px;
+  --fs-56:  56px;
+  --fs-72:  72px;
+  --fs-96:  96px;
+  --fs-128: 128px;
+
+  --lh-tight:  1.05;
+  --lh-snug:   1.2;
+  --lh-base:   1.5;
+  --lh-loose:  1.7;
+
+  --tr-tight:  -0.02em;   /* large display */
+  --tr-snug:   -0.01em;
+  --tr-normal: 0;
+  --tr-wide:   0.04em;    /* eyebrows */
+  --tr-wider:  0.12em;    /* product names ALL CAPS */
+  --tr-widest: 0.2em;     /* RESEARCH bar in logo */
+}
+
+/* ---------- 13. DARK-MODE OVERRIDES --------------------------------------
+   Orange accent is preserved identically - the brand anchor.
+*/
+[data-theme="dark"], .theme-dark {
+  --bg:          var(--gray-950);
+  --bg-subtle:   #1A1A1A;
+  --bg-panel:    #1E1E1E;
+  --bg-elevated: #262626;
+  --bg-inverse:  var(--prusa-white);
+
+  --fg:          #E0E0E0;
+  --fg-strong:   var(--prusa-white);
+  --fg-muted:    #B0B0B0;
+  --fg-subtle:   #888888;
+  --fg-disabled: #555555;
+
+  --border:        #2E2E2E;
+  --border-strong: #555555;
+
+  --shadow-md:   0 4px 14px rgba(0, 0, 0, 0.6);
+  --shadow-lg:   0 18px 40px rgba(0, 0, 0, 0.7);
+}
+
+/* =========================================================================
+   14. SEMANTIC TYPE CLASSES
+   Use these instead of raw size variables in components.
+   ========================================================================= */
+
+.t-eyebrow {
+  font-family: var(--font-product);
+  font-weight: 700;
+  font-size: var(--fs-13);
+  letter-spacing: var(--tr-wider);
+  text-transform: uppercase;
+  color: var(--fg-muted);
+}
+
+.t-display-1 {
+  font-family: var(--font-display);
+  font-weight: 600;            /* Cocogoose Semi Light → Barlow SemiBold */
+  font-size: clamp(56px, 8vw, var(--fs-128));
+  line-height: var(--lh-tight);
+  letter-spacing: var(--tr-tight);
+  text-transform: uppercase;
+  color: var(--fg-strong);
+}
+
+.t-display-2 {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: clamp(40px, 6vw, var(--fs-96));
+  line-height: var(--lh-tight);
+  letter-spacing: var(--tr-tight);
+  text-transform: uppercase;
+  color: var(--fg-strong);
+}
+
+.t-h1 {
+  font-family: var(--font-body);
+  font-weight: 700;            /* Atlas Bold → Inter Bold */
+  font-size: var(--fs-56);
+  line-height: var(--lh-tight);
+  letter-spacing: var(--tr-snug);
+  color: var(--fg-strong);
+}
+
+.t-h2 {
+  font-family: var(--font-body);
+  font-weight: 700;
+  font-size: var(--fs-40);
+  line-height: var(--lh-snug);
+  letter-spacing: var(--tr-snug);
+  color: var(--fg-strong);
+}
+
+.t-h3 {
+  font-family: var(--font-body);
+  font-weight: 700;
+  font-size: var(--fs-24);
+  line-height: var(--lh-snug);
+  color: var(--fg-strong);
+}
+
+.t-h4 {
+  font-family: var(--font-body);
+  font-weight: 600;
+  font-size: var(--fs-20);
+  line-height: var(--lh-snug);
+  color: var(--fg-strong);
+}
+
+.t-subtitle {
+  font-family: var(--font-body);
+  font-weight: 500;            /* Atlas Regular → Inter Medium */
+  font-size: var(--fs-18);
+  line-height: var(--lh-base);
+  color: var(--fg-muted);
+}
+
+.t-body {
+  font-family: var(--font-body);
+  font-weight: 300;            /* Atlas Thin → Inter Light */
+  font-size: var(--fs-16);
+  line-height: var(--lh-base);
+  color: var(--fg);
+}
+
+.t-body-strong {
+  font-family: var(--font-body);
+  font-weight: 500;
+  font-size: var(--fs-16);
+  line-height: var(--lh-base);
+  color: var(--fg);
+}
+
+.t-small {
+  font-family: var(--font-body);
+  font-weight: 400;
+  font-size: var(--fs-14);
+  line-height: var(--lh-base);
+  color: var(--fg-muted);
+}
+
+.t-caption {
+  font-family: var(--font-body);
+  font-weight: 500;
+  font-size: var(--fs-12);
+  line-height: var(--lh-base);
+  letter-spacing: var(--tr-wide);
+  text-transform: uppercase;
+  color: var(--fg-subtle);
+}
+
+.t-mono {
+  font-family: var(--font-mono);
+  font-weight: 400;
+  font-size: var(--fs-13);
+  line-height: var(--lh-base);
+  color: var(--fg);
+}
+
+/* Product name treatment - Helvetica Bold ALL CAPS, model in Prusa Orange.
+   Use --accent for the orange so light/dark mode stay consistent.        */
+.t-product {
+  font-family: var(--font-product);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: var(--tr-wider);
+  color: var(--fg-strong);
+  display: inline-flex;
+  gap: 0.4em;
+  align-items: baseline;
+}
+.t-product .model { color: var(--accent); }
+.t-product .original {
+  font-size: 0.5em;
+  color: var(--fg-subtle);
+  letter-spacing: var(--tr-widest);
+  display: block;
+}

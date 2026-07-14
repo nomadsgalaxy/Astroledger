@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Astroledger maskable icon">
+  <!-- Maskable PWA icon. The W3C maskable spec keeps important content
+       inside a 40% safe zone, since launchers can crop into circles or
+       other shapes. The mark is scaled down so it survives any clip. -->
+  <rect width="512" height="512" fill="#0a0a0a"/>
+  <g transform="translate(102 102) scale(3.08)" style="color:#FD5000">
+    <path fill="currentColor" fill-rule="evenodd"
+          d="M50 2 L93.3 27 L93.3 73 L50 98 L6.7 73 L6.7 27 Z
+             M82 50 A32 32 0 1 0 18 50 A32 32 0 1 0 82 50 Z
+             M78 50 A28 28 0 1 0 22 50 A28 28 0 1 0 78 50 Z
+             M50 30 L46 46 L30 50 L46 54 L50 70 L54 54 L70 50 L54 46 Z" />
+  </g>
+</svg>

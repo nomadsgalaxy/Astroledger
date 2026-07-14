@@ -1,0 +1,96 @@
+diff --git a/node_modules/@prisma/adapter-better-sqlite3/dist/index.js b/node_modules/@prisma/adapter-better-sqlite3/dist/index.js
+index 8ac2dec..6073d58 100644
+--- a/node_modules/@prisma/adapter-better-sqlite3/dist/index.js
++++ b/node_modules/@prisma/adapter-better-sqlite3/dist/index.js
+@@ -245,6 +245,20 @@ var Mutex = class {
+ 
+ // src/better-sqlite3.ts
+ var import_better_sqlite3 = __toESM(require("better-sqlite3"));
++var import_node_fs = require("node:fs");
++var import_node_crypto = require("node:crypto");
++
++function astroledgerDatabaseKey() {
++  if (process.env.ASTROLEDGER_DB_ENCRYPTED !== "true") return null;
++  const keyFile = process.env.ASTROLEDGER_DB_KEY_FILE;
++  const source = keyFile ? (0, import_node_fs.readFileSync)(keyFile, "utf8").trim() : (process.env.SQLCIPHER_KEY || "").trim();
++  if (!source) {
++    throw new Error("ASTROLEDGER_DB_ENCRYPTED=true requires ASTROLEDGER_DB_KEY_FILE (preferred) or SQLCIPHER_KEY");
++  }
++  return /^[0-9a-fA-F]{64}$/.test(source)
++    ? Buffer.from(source, "hex")
++    : (0, import_node_crypto.scryptSync)(source, "astroledger-db-key-v1", 32);
++}
+ 
+ // package.json
+ var name = "@prisma/adapter-better-sqlite3";
+@@ -654,6 +668,22 @@ function createBetterSQLite3Client(input) {
+   const { url, ...config } = input;
+   const dbPath = url.replace(/^file:/, "");
+   const db = new import_better_sqlite3.default(dbPath, config);
++  const key = astroledgerDatabaseKey();
++  if (key) {
++    if (typeof db.key !== "function") {
++      db.close();
++      throw new Error("Encrypted SQLite driver is unavailable; refusing to open the database as plaintext");
++    }
++    db.key(key);
++    try {
++      db.prepare("SELECT count(*) FROM sqlite_master").get();
++    } catch (error) {
++      db.close();
++      throw new Error(`Encrypted database verification failed: ${error?.message ?? error}`);
++    } finally {
++      key.fill(0);
++    }
++  }
+   db.defaultSafeIntegers(true);
+   return db;
+ }
+diff --git a/node_modules/@prisma/adapter-better-sqlite3/dist/index.mjs b/node_modules/@prisma/adapter-better-sqlite3/dist/index.mjs
+index 9f8086c..20cca35 100644
+--- a/node_modules/@prisma/adapter-better-sqlite3/dist/index.mjs
++++ b/node_modules/@prisma/adapter-better-sqlite3/dist/index.mjs
+@@ -209,6 +209,20 @@ var Mutex = class {
+ 
+ // src/better-sqlite3.ts
+ import Database from "better-sqlite3";
++import { readFileSync } from "node:fs";
++import { scryptSync } from "node:crypto";
++
++function astroledgerDatabaseKey() {
++  if (process.env.ASTROLEDGER_DB_ENCRYPTED !== "true") return null;
++  const keyFile = process.env.ASTROLEDGER_DB_KEY_FILE;
++  const source = keyFile ? readFileSync(keyFile, "utf8").trim() : (process.env.SQLCIPHER_KEY || "").trim();
++  if (!source) {
++    throw new Error("ASTROLEDGER_DB_ENCRYPTED=true requires ASTROLEDGER_DB_KEY_FILE (preferred) or SQLCIPHER_KEY");
++  }
++  return /^[0-9a-fA-F]{64}$/.test(source)
++    ? Buffer.from(source, "hex")
++    : scryptSync(source, "astroledger-db-key-v1", 32);
++}
+ 
+ // package.json
+ var name = "@prisma/adapter-better-sqlite3";
+@@ -618,6 +632,22 @@ function createBetterSQLite3Client(input) {
+   const { url, ...config } = input;
+   const dbPath = url.replace(/^file:/, "");
+   const db = new Database(dbPath, config);
++  const key = astroledgerDatabaseKey();
++  if (key) {
++    if (typeof db.key !== "function") {
++      db.close();
++      throw new Error("Encrypted SQLite driver is unavailable; refusing to open the database as plaintext");
++    }
++    db.key(key);
++    try {
++      db.prepare("SELECT count(*) FROM sqlite_master").get();
++    } catch (error) {
++      db.close();
++      throw new Error(`Encrypted database verification failed: ${error?.message ?? error}`);
++    } finally {
++      key.fill(0);
++    }
++  }
+   db.defaultSafeIntegers(true);
+   return db;
+ }

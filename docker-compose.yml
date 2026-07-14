@@ -1,0 +1,82 @@
+services:
+  # Astroledger app (Next.js). Runs on http://localhost:5050.
+  # Start: docker compose up -d astroledger
+  # Logs:  docker compose logs -f astroledger
+  astroledger:
+    build: .
+    image: astroledger:latest
+    container_name: astroledger-app
+    ports:
+      - "127.0.0.1:5050:5050"
+    volumes:
+      - astroledger-data:/data           # SQLite database lives here
+    env_file:
+      - .env
+    environment:
+      - DATABASE_URL=file:/data/astroledger.db
+      - ASTROLEDGER_DB_ENCRYPTED=${ASTROLEDGER_DB_ENCRYPTED:-true}
+      - ASTROLEDGER_UPLOADS_DIR=/data/uploads
+      - ASTROLEDGER_SANDBOX_DIR=/data/sandboxes
+      - ASTROLEDGER_BACKUP_SCRATCH_DIR=/run/astroledger-backup
+      - NEXTAUTH_URL=${NEXTAUTH_URL:-http://localhost:5050}
+      # When AUTO_START_LLM=true the app needs access to the docker socket
+      # to spin up the ollama service. Comment out if you'd rather run llm:up manually.
+    restart: unless-stopped
+    tmpfs:
+      - /run/astroledger-backup:uid=1001,gid=1001,mode=0700
+    depends_on: []
+
+  # Ollama LLM runtime. Not started by default — start on demand via:
+  #   docker compose --profile llm up -d ollama
+  # Stop when finished:
+  #   docker compose --profile llm stop ollama
+  # Astroledger auto-starts/stops this container if AUTO_START_LLM=true in .env.
+  ollama:
+    image: ollama/ollama:latest
+    container_name: astroledger-ollama
+    profiles: ["llm"]
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama-models:/root/.ollama
+    environment:
+      # Auto-unload model after idle period — frees VRAM when chat is quiet.
+      - OLLAMA_KEEP_ALIVE=5m
+      - OLLAMA_HOST=0.0.0.0
+      # On 8 GB VRAM, limit context to keep memory predictable.
+      - OLLAMA_NUM_PARALLEL=1
+      - OLLAMA_MAX_LOADED_MODELS=1
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+
+  # Cloudflare Tunnel — exposes Astroledger at a public HTTPS URL without opening
+  # any ports on your machine or running a reverse proxy. Free with a Cloudflare
+  # account. Not started by default. To use:
+  #   1. Install cloudflared locally, create a tunnel, get the token (see docs/CLOUDFLARE_TUNNEL.md)
+  #   2. Add CF_TUNNEL_TOKEN=eyJ... to .env
+  #   3. docker compose --profile tunnel up -d cloudflared
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: astroledger-tunnel
+    profiles: ["tunnel"]
+    command: tunnel --no-autoupdate run
+    environment:
+      - TUNNEL_TOKEN=${CF_TUNNEL_TOKEN}
+    restart: unless-stopped
+    depends_on:
+      - astroledger
+
+volumes:
+  astroledger-data:
+  ollama-models:

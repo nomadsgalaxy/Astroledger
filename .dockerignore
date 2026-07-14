@@ -1,0 +1,15 @@
+node_modules
+.next
+.git
+.env
+.env.local
+prisma/dev.db*
+prisma/*.db.pre-*
+prisma/test-*.db*
+prisma/sandboxes/*.db*
+!prisma/sandboxes/_seed.db
+*.log
+design-bundle
+docs
+README.md
+DEPLOY.md
