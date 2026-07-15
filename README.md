@@ -10,7 +10,7 @@ Stewarded spaces support a child or dependent while preserving one continuous le
 
 Households can also split real charges across members (equal, percentage, or fixed shares) and settle them against linked reimbursements without double-counting; stewarded spaces support recurring allowances and reward chores with guardian approval. Every permission, sharing, ownership, and succession change lands in an append-only per-space audit trail, and affected members get in-app notifications.
 
-> **Current version: 0.8.0.** Try the live demo with generated data at <https://demo.astroledger.app>.
+> **Current version: 0.8.1.** Try the live demo with generated data at <https://demo.astroledger.app>.
 
 ---
 
@@ -54,7 +54,8 @@ Open `.env` in your editor. The fields you MUST fill in to boot:
 | `MASTER_KEY` | AES-256-GCM key for field encryption + WebAuthn challenges. 64 hex chars. | `openssl rand -hex 32` |
 | `AUTH_SECRET` | NextAuth signing secret. | `openssl rand -base64 32` |
 | `AUTH_URL` | Public origin Astroledger will be served from. | `http://localhost:5050` for dev, `https://astroledger.example.com` for prod |
-| `ALLOWED_EMAILS` | Comma-separated allowlist of Google emails that can sign in. **First listed email becomes admin.** | `you@gmail.com` |
+| `ALLOWED_EMAILS` | Comma-separated allowlist of Google emails that can sign in. | `you@gmail.com` |
+| `ADMIN_EMAILS` | Optional. Extra instance admins (backups, updates, automation). **The first user to ever sign in is always admin**, listed or not. | `partner@gmail.com` |
 | `GOOGLE_CLIENT_ID` + `GOOGLE_CLIENT_SECRET` | OAuth credentials — see step 4 below |  |
 
 Everything else (Plaid, SimpleFIN, Polygon, Ollama) is optional and can be added later as you connect those integrations.

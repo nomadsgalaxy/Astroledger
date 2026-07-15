@@ -105,6 +105,10 @@ test('settings hosts the household hub with per-space management', async ({ brow
   const page = await owner.newPage();
   await page.goto('/settings');
   await expect(page.getByRole('heading', { name: 'Household & spaces' })).toBeVisible();
+  // The seed never sets isAdmin (like databases predating the flag): the
+  // earliest-created user must self-heal into instance admin and see the
+  // admin-only cards.
+  await expect(page.getByText('Software updates')).toBeVisible();
   // The owner's household space renders as a management card with its people.
   await expect(page.locator('strong').filter({ hasText: 'E2E Family Finances' }).first()).toBeVisible();
   await expect(page.getByText('partner@e2e.test').first()).toBeVisible();

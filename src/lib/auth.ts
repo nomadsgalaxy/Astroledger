@@ -6,6 +6,7 @@ import { unlockVault } from './vault';
 import { acceptPendingHouseholdInvite, currentHouseholdId, hasPendingHouseholdInvite } from './household';
 import { acceptPendingFinancialSpaceInvites, acceptSuccessionNominations, hasPendingFinancialSpaceInvite, hasSuccessionNomination } from './financialSpaces';
 import { ensureUserFinancialSpaces } from './financialAccess';
+import { ensureAdminStatus } from './adminPromotion';
 
 // Sign-in policy:
 //   • If zero users exist, the first successful Google login becomes the admin.
@@ -69,7 +70,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       }
       await ensureUserFinancialSpaces(prisma, user.id);
       (session.user as any).id = user.id;
-      (session.user as any).isAdmin = (user as any).isAdmin ?? false;
+      (session.user as any).isAdmin = await ensureAdminStatus(user.id, user.email, (user as any).isAdmin ?? false);
       const passkeyCount = await prisma.authenticator.count({ where: { userId: user.id } });
       (session.user as any).hasPasskey = passkeyCount > 0;
       return session;
