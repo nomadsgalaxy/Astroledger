@@ -40,6 +40,7 @@ async function main() {
     const partner = await mkUser('partner', 'E2E Partner');
     const helper = await mkUser('helper', 'E2E Helper');
     const advisor = await mkUser('advisor', 'E2E Advisor');
+    await mkUser('newbie', 'E2E Newbie'); // deliberately no household/space rows
 
     const household = await prisma.household.create({ data: { name: 'E2E Family' } });
     await prisma.householdMember.createMany({

@@ -108,7 +108,7 @@ export async function createSharedExpense(access: RequestAccess, input: {
       await notifyUser({
         spaceId: access.activeSpaceId, userId: share.userId, kind: 'split',
         title: `You owe ${share.amount.toFixed(2)} for "${transaction.merchant ?? transaction.rawDescription}"`,
-        linkPath: '/spaces',
+        linkPath: `/spaces?space=${access.activeSpaceId}`,
       });
     }
   }
@@ -125,7 +125,10 @@ async function loadShare(access: RequestAccess, shareId: string) {
 
 async function refreshExpenseStatus(expenseId: string) {
   const open = await prisma.expenseShare.count({ where: { expenseId, settledAt: null } });
-  await prisma.sharedExpense.update({ where: { id: expenseId }, data: { status: open ? 'open' : 'settled' } });
+  // Derived bookkeeping written after a service-authorized settle/reopen.
+  // Raw because a view-level participant settling their own share cannot
+  // update the parent SharedExpense through the model guard.
+  await prisma.$executeRaw`UPDATE SharedExpense SET status = ${open ? 'open' : 'settled'} WHERE id = ${expenseId}`;
 }
 
 export async function settleExpenseShare(access: RequestAccess, shareId: string, input: { settlementTransactionId?: string } = {}) {
@@ -158,7 +161,7 @@ export async function settleExpenseShare(access: RequestAccess, shareId: string,
   if (counterparty && counterparty !== access.userId) {
     await notifyUser({
       spaceId: access.activeSpaceId, userId: counterparty, kind: 'split',
-      title: `A ${share.amount.toFixed(2)} shared-expense share was settled`, linkPath: '/spaces',
+      title: `A ${share.amount.toFixed(2)} shared-expense share was settled`, linkPath: `/spaces?space=${access.activeSpaceId}`,
     });
   }
 }

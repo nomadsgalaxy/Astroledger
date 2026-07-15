@@ -632,3 +632,31 @@ html, body {
   line-height: var(--lh-base);
   color: var(--fg-muted);
 }
+
+/* ===== Settings page layout (rail + content) ===== */
+.settings-layout {
+  display: grid;
+  grid-template-columns: 180px minmax(0, 1fr);
+  gap: 26px;
+  align-items: start;
+}
+.settings-nav {
+  position: sticky;
+  top: 78px; /* below the 60px top bar */
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+@media (max-width: 900px) {
+  .settings-layout { grid-template-columns: minmax(0, 1fr); }
+  .settings-nav {
+    position: sticky;
+    top: 60px;
+    z-index: 4;
+    flex-direction: row;
+    overflow-x: auto;
+    padding: 8px 0;
+    background: var(--bg);
+    border-bottom: 1px solid var(--border);
+  }
+}

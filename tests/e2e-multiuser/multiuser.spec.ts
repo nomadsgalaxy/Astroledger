@@ -81,6 +81,62 @@ test('document vault accepts a real document and rejects an executable', async (
   await owner.close();
 });
 
+test('a brand-new user self-heals into a working personal space on first request', async ({ browser, baseURL }) => {
+  const newbie = await contextFor(browser, baseURL!, 'newbie');
+  const page = await newbie.newPage();
+  // First-ever authenticated request: dashboard must render with real
+  // (empty-state) content, not an error or a blank shell.
+  const dashboard = await page.goto('/', { waitUntil: 'domcontentloaded' });
+  expect(dashboard!.status()).toBeLessThan(400);
+  await page.goto('/spaces');
+  await expect(page.getByRole('heading', { name: 'Financial spaces' })).toBeVisible();
+  await expect(page.locator('strong').filter({ hasText: "E2E Newbie's Finances" }).first()).toBeVisible();
+  await expect(page.getByText('You are owner')).toBeVisible();
+  // Authenticated APIs answer instead of 401/500ing on the fresh account.
+  for (const path of ['/api/notifications', '/api/shared-expenses', '/api/allowances']) {
+    const response = await newbie.request.get(path);
+    expect(response.status(), path).toBe(200);
+  }
+  await newbie.close();
+});
+
+test('settings hosts the household hub with per-space management', async ({ browser, baseURL }) => {
+  const owner = await contextFor(browser, baseURL!, 'owner');
+  const page = await owner.newPage();
+  await page.goto('/settings');
+  await expect(page.getByRole('heading', { name: 'Household & spaces' })).toBeVisible();
+  // The owner's household space renders as a management card with its people.
+  await expect(page.locator('strong').filter({ hasText: 'E2E Family Finances' }).first()).toBeVisible();
+  await expect(page.getByText('partner@e2e.test').first()).toBeVisible();
+  // Cross-space management: invite into the household space FROM settings,
+  // regardless of which space is active.
+  await page.getByPlaceholder('Invite by email').first().fill('fromsettings@e2e.test');
+  await page.getByRole('button', { name: 'Invite', exact: true }).first().click();
+  await expect(page.getByText(/fromsettings@e2e\.test \(viewer\)/)).toBeVisible();
+  await owner.close();
+
+  // A non-admin member sees the hub too, with controls scaled down.
+  const helper = await contextFor(browser, baseURL!, 'helper');
+  const helperPage = await helper.newPage();
+  await helperPage.goto('/settings');
+  await expect(helperPage.getByRole('heading', { name: 'Household & spaces' })).toBeVisible();
+  await expect(helperPage.getByText('Managed by your administrator')).toBeVisible();
+  await helper.close();
+});
+
+test('every role can open the core pages without a server error', async ({ browser, baseURL }) => {
+  const pages = ['/', '/transactions', '/accounts', '/budgets', '/spaces', '/settings', '/alerts'];
+  for (const who of ['partner', 'helper', 'advisor'] as const) {
+    const context = await contextFor(browser, baseURL!, who);
+    const page = await context.newPage();
+    for (const path of pages) {
+      const response = await page.goto(path, { waitUntil: 'domcontentloaded' });
+      expect(response!.status(), `${who} → ${path}`).toBeLessThan(400);
+    }
+    await context.close();
+  }
+});
+
 test('a nominated successor executes an approved request after the waiting period', async ({ browser, baseURL }) => {
   const advisor = await contextFor(browser, baseURL!, 'advisor');
   const page = await advisor.newPage();

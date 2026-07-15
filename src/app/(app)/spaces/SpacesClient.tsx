@@ -68,6 +68,20 @@ export default function SpacesClient({ initial }: { initial: Workspace }) {
     if (await post({ action: 'select_space', spaceId }, 'Switching')) window.location.reload();
   };
 
+  // Deep link: /spaces?space=<id> (used by notifications) activates that space
+  // before showing the page, so "approve this chore" lands where the panel is.
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    const requested = url.searchParams.get('space');
+    if (!requested) return;
+    url.searchParams.delete('space');
+    window.history.replaceState(null, '', url.toString());
+    if (requested !== workspace.activeSpaceId && workspace.spaces.some((s: any) => s.id === requested)) {
+      switchSpace(requested);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const loadDocuments = async () => {
     const response = await fetch('/api/documents', { cache: 'no-store' });
     if (response.ok) setDocuments((await response.json()).documents ?? []);

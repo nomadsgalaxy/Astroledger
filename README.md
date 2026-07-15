@@ -10,7 +10,7 @@ Stewarded spaces support a child or dependent while preserving one continuous le
 
 Households can also split real charges across members (equal, percentage, or fixed shares) and settle them against linked reimbursements without double-counting; stewarded spaces support recurring allowances and reward chores with guardian approval. Every permission, sharing, ownership, and succession change lands in an append-only per-space audit trail, and affected members get in-app notifications.
 
-> **Current version: 0.7.0.** Try the live demo with generated data at <https://demo.astroledger.app>.
+> **Current version: 0.8.0.** Try the live demo with generated data at <https://demo.astroledger.app>.
 
 ---
 

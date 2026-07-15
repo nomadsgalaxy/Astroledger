@@ -317,6 +317,13 @@ function writeScope(model: string, access: RequestAccess, operation: string): an
       ? { spaceId: access.activeSpaceId, assigneeUserId: access.userId }
       : { id: { in: [] } };
   }
+  // A view-level participant may still settle/reopen their OWN share of a
+  // shared expense; the data filter below limits them to settlement fields.
+  if (model === 'ExpenseShare' && !access.canCreate) {
+    return operation === 'update' || operation === 'updateMany'
+      ? { userId: access.userId, expense: { spaceId: access.activeSpaceId } }
+      : { id: { in: [] } };
+  }
   if (model === 'BankAccount') {
     const ids = operation === 'delete' || operation === 'deleteMany' ? access.ownerAccountIds : access.manageAccountIds;
     return { id: { in: ids } };
@@ -456,6 +463,14 @@ export async function applyFinancialScope(
         const allowed: any = {};
         if ('status' in args.data) allowed.status = args.data.status;
         if ('completedAt' in args.data) allowed.completedAt = args.data.completedAt;
+        args.data = allowed;
+      } else if (model === 'ExpenseShare' && !access.canCreate) {
+        // A participant can flip settlement state on their own share; the
+        // amount/percentage/participant columns stay frozen.
+        const allowed: any = {};
+        for (const field of ['settledAt', 'settledById', 'settlementTransactionId']) {
+          if (field in args.data) allowed[field] = args.data[field];
+        }
         args.data = allowed;
       } else {
         const { spaceId: _space, ownerSpaceId: _owner, ...safe } = args.data;

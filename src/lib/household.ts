@@ -125,7 +125,16 @@ async function requireOwner(userId: string) {
 
 export async function getHousehold(userId?: string | null): Promise<HouseholdView | null> {
   if (!userId) return null;
-  const membership = await actorMembership(userId);
+  let membership;
+  try {
+    membership = await actorMembership(userId);
+  } catch (error) {
+    // A member who arrived through a financial-space invitation (advisor,
+    // helper, successor) legitimately has no legacy household. Reads return
+    // null for them; mutations still throw through requireOwner.
+    if (error instanceof HouseholdError) return null;
+    throw error;
+  }
   const household = await prisma.household.findUnique({
     where: { id: membership.householdId },
     include: {

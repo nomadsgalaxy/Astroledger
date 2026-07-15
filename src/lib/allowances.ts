@@ -94,7 +94,7 @@ async function payPayout(access: RequestAccess, payout: { id: string; amount: nu
   if (beneficiaryUserId && beneficiaryUserId !== access.userId) {
     await notifyUser({
       spaceId: access.activeSpaceId, userId: beneficiaryUserId, kind: 'allowance',
-      title: `Your ${payout.amount.toFixed(2)} allowance arrived`, linkPath: '/spaces',
+      title: `Your ${payout.amount.toFixed(2)} allowance arrived`, linkPath: `/spaces?space=${access.activeSpaceId}`,
     });
   }
 }
@@ -169,7 +169,7 @@ export async function createChore(access: RequestAccess, input: {
   if (input.assigneeUserId && input.assigneeUserId !== access.userId) {
     await notifyUser({
       spaceId: access.activeSpaceId, userId: input.assigneeUserId, kind: 'chore',
-      title: `New chore: "${name}" (earns ${reward.toFixed(2)})`, linkPath: '/spaces',
+      title: `New chore: "${name}" (earns ${reward.toFixed(2)})`, linkPath: `/spaces?space=${access.activeSpaceId}`,
     });
   }
   return chore;
@@ -185,7 +185,7 @@ export async function claimChore(access: RequestAccess, choreId: string) {
   // The guard limits non-managers to their own chores and to status/completedAt.
   await prisma.choreTask.update({ where: { id: choreId }, data: { status: 'done_pending', completedAt: new Date() } });
   await notifySpaceMembers(access.activeSpaceId, {
-    kind: 'chore', title: `"${chore.name}" was marked done — review to pay ${chore.reward.toFixed(2)}`, linkPath: '/spaces',
+    kind: 'chore', title: `"${chore.name}" was marked done — review to pay ${chore.reward.toFixed(2)}`, linkPath: `/spaces?space=${access.activeSpaceId}`,
   }, { excludeUserId: access.userId, roles: ['owner', 'guardian', 'manager'] });
 }
 
@@ -199,7 +199,7 @@ export async function decideChore(access: RequestAccess, choreId: string, decisi
     if (chore.assigneeUserId && chore.assigneeUserId !== access.userId) {
       await notifyUser({
         spaceId: access.activeSpaceId, userId: chore.assigneeUserId, kind: 'chore',
-        title: `"${chore.name}" needs another look before it can be paid`, linkPath: '/spaces',
+        title: `"${chore.name}" needs another look before it can be paid`, linkPath: `/spaces?space=${access.activeSpaceId}`,
       });
     }
     return;
@@ -222,7 +222,7 @@ export async function decideChore(access: RequestAccess, choreId: string, decisi
   if (chore.assigneeUserId && chore.assigneeUserId !== access.userId) {
     await notifyUser({
       spaceId: access.activeSpaceId, userId: chore.assigneeUserId, kind: 'chore',
-      title: `You earned ${chore.reward.toFixed(2)} for "${chore.name}"`, linkPath: '/spaces',
+      title: `You earned ${chore.reward.toFixed(2)} for "${chore.name}"`, linkPath: `/spaces?space=${access.activeSpaceId}`,
     });
   }
 }

@@ -208,6 +208,84 @@ export async function getFinancialWorkspace(userId: string) {
   };
 }
 
+// Raw DATETIME values come back in whatever representation the writer used
+// (ISO string, "YYYY-MM-DD HH:MM:SS", or epoch millis). Normalize defensively.
+function rawDate(value: unknown): string {
+  if (typeof value === 'number') return new Date(value).toISOString();
+  const text = String(value ?? '');
+  if (/^\d+$/.test(text)) return new Date(Number(text)).toISOString();
+  const parsed = new Date(text.includes('T') ? text : `${text.replace(' ', 'T')}Z`);
+  return isNaN(+parsed) ? new Date(0).toISOString() : parsed.toISOString();
+}
+
+/** Cross-space management view for the Settings household hub. Unlike
+ * getFinancialWorkspace (active-space DTO), this returns every space the user
+ * belongs to, with management data scaled to their role in EACH space. */
+export async function getHouseholdSettingsView(userId: string) {
+  await ensureUserFinancialSpaces(prisma, userId);
+  const memberships = await prisma.financialSpaceMember.findMany({
+    where: { userId, space: { status: { not: 'archived' } } },
+    include: { space: true },
+    orderBy: { createdAt: 'asc' },
+  });
+  const spaces = [];
+  for (const membership of memberships) {
+    const spaceId = membership.spaceId;
+    const isOwner = membership.role === 'owner';
+    const canInvite = isOwner || membership.canInvite;
+    const [members, invites, accountRows, plan] = await Promise.all([
+      prisma.financialSpaceMember.findMany({
+        where: { spaceId },
+        include: { user: { select: { id: true, name: true, email: true } } },
+        orderBy: { createdAt: 'asc' },
+      }),
+      canInvite ? prisma.financialSpaceInvite.findMany({
+        where: { spaceId, acceptedAt: null, revokedAt: null, expiresAt: { gt: new Date() } },
+        orderBy: { createdAt: 'desc' },
+      }) : Promise.resolve([]),
+      prisma.$queryRaw<Array<{ c: bigint }>>`SELECT COUNT(*) AS c FROM BankAccount WHERE ownerSpaceId = ${spaceId}`,
+      isOwner ? prisma.spaceSuccessionPlan.findUnique({
+        where: { spaceId },
+        include: { successors: true, requests: { where: { status: { in: ['pending', 'approved'] } }, take: 1 } },
+      }) : Promise.resolve(null),
+    ]);
+    // Owner-only audit peek. Raw SELECT because the model guard scopes audit
+    // reads to the ACTIVE space; this read is authorized per space by the
+    // explicit owner check above. Security review point, like all raw SQL.
+    const audit = isOwner ? await prisma.$queryRaw<Array<{ id: string; at: unknown; action: string; summary: string }>>`
+      SELECT id, at, action, summary FROM SpaceAuditEvent WHERE spaceId = ${spaceId} ORDER BY at DESC LIMIT 8
+    ` : [];
+    spaces.push({
+      id: spaceId,
+      name: membership.space.name,
+      kind: membership.space.kind,
+      status: membership.space.status,
+      beneficiaryUserId: membership.space.beneficiaryUserId,
+      role: membership.role,
+      canInvite,
+      canAdmin: isOwner,
+      accountCount: Number(accountRows[0]?.c ?? 0),
+      members: members.map(member => ({
+        id: member.id, userId: member.userId, name: member.user.name, email: member.user.email,
+        role: member.role, canManageDocuments: member.canManageDocuments, canExport: member.canExport,
+        canInvite: member.canInvite, isCurrent: member.userId === userId,
+      })),
+      invites: invites.map(invite => ({
+        id: invite.id, email: invite.email, role: invite.role, expiresAt: invite.expiresAt.toISOString(),
+      })),
+      succession: plan ? {
+        enabled: plan.enabled,
+        successorCount: plan.successors.length,
+        pendingRequest: plan.requests[0] ? { id: plan.requests[0].id, status: plan.requests[0].status } : null,
+      } : null,
+      recentAudit: audit.map(event => ({
+        id: event.id, at: rawDate(event.at), action: event.action, summary: event.summary,
+      })),
+    });
+  }
+  return { spaces };
+}
+
 export async function getFinancialSpaceSwitcher(userId: string) {
   await ensureUserFinancialSpaces(prisma, userId);
   const [access, memberships] = await Promise.all([

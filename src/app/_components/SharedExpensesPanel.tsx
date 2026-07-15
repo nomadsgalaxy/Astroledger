@@ -148,11 +148,17 @@ export default function SharedExpensesPanel({ members }: { members: Member[] }) 
               )}
             </div>
             <div style={{ marginTop: 8, display: 'grid', gap: 6 }}>
-              {expense.shares.map((share: any) => (
+              {expense.shares.map((share: any) => {
+                // Settlement is offered only to people the server will accept:
+                // the payer, the participant themselves, or a space owner.
+                const canSettle = me && (expense.paidById === me.userId || share.userId === me.userId);
+                return (
                 <div key={share.id} style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 12, color: 'var(--fg-muted)', flexWrap: 'wrap' }}>
                   <span style={{ minWidth: 160 }}>{share.userId ? (usersById.get(share.userId)?.name ?? usersById.get(share.userId)?.email ?? 'Member') : share.label}</span>
                   <span style={{ fontFamily: 'var(--font-mono)' }}>{share.amount.toFixed(2)}</span>
-                  {share.settledAt
+                  {!canSettle && !share.settledAt && <span style={{ color: 'var(--fg-subtle)' }}>open</span>}
+                  {!canSettle && share.settledAt && <span style={{ color: 'var(--positive, #3a9)' }}>settled</span>}
+                  {canSettle && (share.settledAt
                     ? <span style={{ color: 'var(--positive, #3a9)' }}>settled{share.settlementTransactionId ? ' · linked' : ''}
                         <button style={{ border: 0, background: 'none', color: 'var(--fg-subtle)', cursor: 'pointer', fontSize: 11 }}
                           onClick={() => post({ action: 'reopen', shareId: share.id }, 'Reopening')}>undo</button>
@@ -172,9 +178,10 @@ export default function SharedExpensesPanel({ members }: { members: Member[] }) 
                           }}>confirm</button>
                           <button style={{ border: 0, background: 'none', color: 'var(--fg-subtle)', cursor: 'pointer', fontSize: 11 }} onClick={() => setSettling(null)}>cancel</button>
                         </span>
-                      : <button style={{ ...subtleButton, minHeight: 28, padding: '0 10px', fontSize: 11 }} onClick={() => setSettling(share.id)}>settle</button>}
+                      : <button style={{ ...subtleButton, minHeight: 28, padding: '0 10px', fontSize: 11 }} onClick={() => setSettling(share.id)}>settle</button>)}
                 </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         ))}
